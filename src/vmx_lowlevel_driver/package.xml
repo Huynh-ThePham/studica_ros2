@@ -4,7 +4,7 @@
   <name>vmx_lowlevel_driver</name>
   <version>1.0.0</version>
   <description>ROS-free VMX direct UDP low-level daemon for navX IMU telemetry and Titan Quad CAN motor control.</description>
-  <maintainer email="maintainers@example.com">VMX Direct Low-Level Maintainers</maintainer>
+  <maintainer email="huynhthepham18@gmail.com">ThePH</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

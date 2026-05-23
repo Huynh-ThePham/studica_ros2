@@ -77,8 +77,8 @@ python3 scripts/vmx_doctor.py --host 172.22.11.2
 - `.gitignore` excludes `build/`, `install/`, `log/` and Python caches.
 - No generated `__pycache__`, build artifacts or logs are committed.
 - Package versions are updated consistently.
-- Maintainer names/emails are replaced with the official project owner before
-  external publication.
+- Maintainer names/emails identify the official project owner before external
+  publication.
 - Protocol docs and code constants are updated together.
 
 ## Safety Release Notes

@@ -4,9 +4,9 @@ This repository controls physical motors. Treat security issues as safety issues
 
 ## Reporting
 
-Before public release, replace this section with the official project security
-contact. Do not publish exploit details until the maintainer has acknowledged
-and triaged the report.
+Report security or motor-safety issues privately to
+huynhthepham18@gmail.com. Do not publish exploit details until the maintainer
+has acknowledged and triaged the report.
 
 ## Scope
 

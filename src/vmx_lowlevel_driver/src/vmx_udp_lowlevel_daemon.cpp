@@ -287,11 +287,13 @@ int main() {
 
   sockaddr_in telemetry_addr{};
   bool telemetry_addr_valid = false;
+  bool telemetry_addr_fixed = false;
   if (!fixed_pc_ip.empty()) {
     telemetry_addr.sin_family = AF_INET;
     telemetry_addr.sin_port = htons(telemetry_port);
     if (::inet_pton(AF_INET, fixed_pc_ip.c_str(), &telemetry_addr.sin_addr) == 1) {
       telemetry_addr_valid = true;
+      telemetry_addr_fixed = true;
       std::cout << "Telemetry fixed destination " << fixed_pc_ip << ':' << telemetry_port << '\n';
     } else {
       std::cerr << "Invalid VMX_UDP_PC_IP='" << fixed_pc_ip << "', using last command sender\n";
@@ -429,9 +431,11 @@ int main() {
       last_command_sequence = command.sequence;
       last_cmd_time = Clock::now();
 
-      telemetry_addr = sender;
-      telemetry_addr.sin_port = htons(telemetry_port);
-      telemetry_addr_valid = true;
+      if (!telemetry_addr_fixed) {
+        telemetry_addr = sender;
+        telemetry_addr.sin_port = htons(telemetry_port);
+        telemetry_addr_valid = true;
+      }
     }
 
     const auto now = Clock::now();
