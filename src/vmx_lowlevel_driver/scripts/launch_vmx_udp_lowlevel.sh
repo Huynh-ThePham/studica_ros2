@@ -44,8 +44,7 @@ rm -f "${LOG}"
   export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib/vmxpi:/usr/local/lib/studica_drivers:${LD_LIBRARY_PATH:-}"
   exec stdbuf -oL -eL bash "${RUNNER}" "$@"
 ) &
-WRAPPER_PID=$!
-disown
+disown "$!"
 
 DAEMON_PID=""
 for _ in $(seq 1 40); do
