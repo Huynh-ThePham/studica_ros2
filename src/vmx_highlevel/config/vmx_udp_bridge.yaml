@@ -1,0 +1,19 @@
+vmx_udp_bridge_node:
+  ros__parameters:
+    vmx_host: 172.22.11.2
+    command_port: 15000
+    telemetry_port: 15001
+
+    # Must match VMX daemon defaults. 10 Hz is intentional: it matches the
+    # bench-strong HAL direct test cadence and stays inside Titan's CAN keepalive.
+    command_rate_hz: 10.0
+    command_timeout: 0.50
+    telemetry_timeout: 1.0
+    status_rate_hz: 2.0
+
+    motor_power_topic: /titan/motor_power
+    imu_topic: /imu
+    status_topic: /lowlevel_status
+    encoder_topic_format: /titan/motor{port}/encoder
+    speed_topic_format: /titan/motor{port}/speed
+    imu_frame_id: imu_link

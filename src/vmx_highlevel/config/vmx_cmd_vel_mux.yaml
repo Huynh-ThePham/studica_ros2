@@ -1,0 +1,25 @@
+vmx_cmd_vel_mux_node:
+  ros__parameters:
+    joy_topic: /cmd_vel_joy
+    joy_state_topic: /joy
+    joy_enable_button: 4
+    nav_topic: /cmd_vel_nav
+    output_topic: /cmd_vel
+    status_topic: /cmd_vel_mux_status
+
+    publish_rate_hz: 30.0
+    status_rate_hz: 2.0
+
+    # teleop_twist_joy publishes while the deadman button is held. The mux also
+    # reads /joy directly, so holding LB with centered sticks publishes zero and
+    # overrides autonomy. After active joystick motion, it keeps priority briefly
+    # so released joystick states reliably send a stop before autonomy resumes.
+    joy_timeout: 0.35
+    joy_lockout_after_active: 0.50
+
+    # NAV2 or any autonomous source should publish to /cmd_vel_nav when this mux
+    # is used. The mux output is the only writer to /cmd_vel.
+    nav_timeout: 0.35
+
+    active_threshold: 0.0001
+    stop_on_idle: true

@@ -1,0 +1,91 @@
+vmx_highlevel_node:
+  ros__parameters:
+    # Telemetry is published by vmx_udp_bridge_node on the PC. Keep reliable
+    # subscriptions unless you intentionally change the bridge QoS.
+    subscribe_best_effort: false
+
+    # Empty std_srvs service to zero pose and re-base encoders (NAV2 / teleop convenience).
+    reset_odometry_service: /reset_odometry
+
+    # Robot này đã lắp cứng 4WD differential:
+    #   phải = M0 + M1, trái = M2 + M3
+    #   chạy thẳng: [M0, M1, M2, M3] = [+,+,-,-]
+    # Khi true, node sẽ khóa port map, command sign và encoder sign theo layout này
+    # để tránh cấu hình nhầm làm robot quay/lệch bất thường.
+    fixed_4wd_layout: true
+
+    # Robot geometry. Tune these from the real chassis before serious odometry use.
+    wheel_radius: 0.05
+    wheelbase: 0.28
+    ticks_per_rotation: 1464
+
+    # Bản đồ diff-drive cố định: phải = M0 + M1 (right_power), trái = M2 + M3 (left_power).
+    # front_left/rear_left = hai cổng cùng phía trái; front_right/rear_right = cùng phía phải.
+    # Các tham số port/sign bên dưới chỉ dùng nếu fixed_4wd_layout=false.
+    front_left_port: 2
+    front_right_port: 0
+    rear_left_port: 3
+    rear_right_port: 1
+
+    # Command sign: nhân duty trước khi gửi /titan/motor_power.
+    # Bench calibration: forward sync is [M0, M1, M2, M3] = [+,+,-,-].
+    motor_command_sign_m0: 1.0
+    motor_command_sign_m1: 1.0
+    motor_command_sign_m2: -1.0
+    motor_command_sign_m3: -1.0
+
+    # Per-port command trim from the latest encoder bench after replacing M3.
+    # Keep trims small; large gain usually means a mechanical/electrical fault.
+    motor_command_gain_m0: 1.05
+    motor_command_gain_m1: 1.00
+    motor_command_gain_m2: 1.04
+    motor_command_gain_m3: 1.03
+
+    # Deadband compensation on the PC side. Characterization after Titan app
+    # config showed all wheels become repeatable from about |duty| >= 0.20.
+    # Set back to 0.0 if you want the upper controller to ramp through the
+    # deadband manually for very smooth low-speed experiments.
+    motor_min_power_m0: 0.20
+    motor_min_power_m1: 0.20
+    motor_min_power_m2: 0.20
+    motor_min_power_m3: 0.20
+
+    # Encoder sign: delta tích cực = bánh lăn theo +x base_link.
+    # Bench test 2026-05-20: forward raw deltas were M0/M1 negative,
+    # M2/M3 positive, so right-side encoders are inverted in odometry.
+    encoder_sign_m0: -1.0
+    encoder_sign_m1: -1.0
+    encoder_sign_m2: 1.0
+    encoder_sign_m3: 1.0
+
+    max_linear_velocity: 0.70
+    max_angular_velocity: 1.80
+    max_wheel_linear_velocity: 0.70
+    max_motor_power: 0.70
+    cmd_vel_timeout: 0.25
+
+    # ROS-side publish rate for /titan/motor_power. The UDP bridge sends the
+    # latest command to the VMX at 10 Hz by default, matching the HAL direct
+    # cadence validated by titan_port_test.
+    control_rate_hz: 20.0
+    odom_rate_hz: 30.0
+    status_rate_hz: 1.0
+
+    use_imu_yaw_for_odom: true
+    publish_odom: true
+    publish_tf: true
+
+    odom_frame_id: odom
+    base_frame_id: base_link
+    imu_frame_id: imu_link
+
+    cmd_vel_topic: /cmd_vel
+    motor_power_topic: /titan/motor_power
+    imu_topic: /imu
+    odom_topic: /odom
+    status_topic: /highlevel_status
+
+    pose_covariance_xy: 0.02
+    pose_covariance_yaw: 0.05
+    twist_covariance_linear: 0.05
+    twist_covariance_angular: 0.10

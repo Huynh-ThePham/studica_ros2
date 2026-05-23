@@ -1,0 +1,47 @@
+[Unit]
+Description=VMX direct UDP low-level daemon (Studica HAL, no ROS on VMX)
+Documentation=https://docs.dev.studica.com/en/latest/docs/ROS2/
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/run/vmx-udp-lowlevel.pid
+User=root
+Group=root
+WorkingDirectory=/home/vmx/lowlevel_cpp_ws
+
+Environment="HOME=/home/vmx"
+Environment="VMX_LOWLEVEL_WS=/home/vmx/lowlevel_cpp_ws"
+Environment="VMX_UDP_LOWLEVEL_LOG=/var/log/vmx-udp-lowlevel.log"
+Environment="VMX_UDP_CMD_PORT=15000"
+Environment="VMX_UDP_TELEM_PORT=15001"
+Environment="VMX_TITAN_CAN_ID=42"
+Environment="VMX_TITAN_MOTOR_FREQ=15600"
+Environment="VMX_TICKS_PER_ROTATION=1464"
+Environment="VMX_WHEEL_RADIUS_M=0.05"
+Environment="VMX_UDP_CONTROL_HZ=10.0"
+Environment="VMX_UDP_TELEMETRY_HZ=20.0"
+Environment="VMX_UDP_CMD_TIMEOUT_SEC=0.50"
+Environment="VMX_TITAN_STOP_MODE=1"
+Environment="VMX_TITAN_ZERO_HOLD_SEC=1.00"
+Environment="VMX_TITAN_CURRENT_LIMIT_A=20.0"
+Environment="VMX_TITAN_CURRENT_LIMIT_MODE=-1"
+Environment="LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/vmxpi:/usr/local/lib/studica_drivers"
+
+LimitMEMLOCK=infinity
+OOMScoreAdjust=-500
+Restart=on-failure
+RestartSec=2
+TimeoutStartSec=60
+TimeoutStopSec=5
+
+ExecStartPre=/usr/bin/install -d /var/log -m 0755
+ExecStartPre=-/bin/rm -f /run/vmx-udp-lowlevel.pid
+ExecStartPre=-/bin/rm -f /run/pigpio.pid /var/run/pigpio.pid /dev/pigpio /dev/pigout
+ExecStartPre=-/bin/bash -c 'PID="$(pidof vmx_udp_lowlevel_daemon 2>/dev/null || true)"; [ -z "$PID" ] || kill -TERM $PID'
+ExecStart=/usr/bin/setsid /bin/bash /home/vmx/lowlevel_cpp_ws/install/vmx_lowlevel_driver/share/vmx_lowlevel_driver/scripts/launch_vmx_udp_lowlevel.sh
+ExecStop=/bin/bash -c '/home/vmx/lowlevel_cpp_ws/install/vmx_lowlevel_driver/share/vmx_lowlevel_driver/scripts/send_vmx_udp_stop.py || true; sleep 0.2; PID="$(cat /run/vmx-udp-lowlevel.pid 2>/dev/null || pidof vmx_udp_lowlevel_daemon 2>/dev/null || true)"; [ -z "$PID" ] || kill -TERM $PID; sleep 1; PID="$(pidof vmx_udp_lowlevel_daemon 2>/dev/null || true)"; [ -z "$PID" ] || kill -9 $PID; rm -f /run/vmx-udp-lowlevel.pid /run/pigpio.pid /var/run/pigpio.pid /dev/pigpio /dev/pigout'
+
+[Install]
+WantedBy=multi-user.target

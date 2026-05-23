@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>vmx_lowlevel_driver</name>
+  <version>1.0.0</version>
+  <description>ROS-free VMX direct UDP low-level daemon for navX IMU telemetry and Titan Quad CAN motor control.</description>
+  <maintainer email="maintainers@example.com">VMX Direct Low-Level Maintainers</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
