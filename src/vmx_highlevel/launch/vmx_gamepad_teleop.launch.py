@@ -17,7 +17,7 @@ def generate_launch_description():
                 default_value=PathJoinSubstitution(
                     [FindPackageShare("vmx_highlevel"), "config", "vmx_teleop_joy.yaml"]
                 ),
-                description="YAML parameters for joy_node and teleop_twist_joy.",
+                description="YAML parameters for joy_node.",
             ),
             DeclareLaunchArgument(
                 "mux_params_file",
@@ -37,16 +37,6 @@ def generate_launch_description():
                 name="joy_node",
                 output="screen",
                 parameters=[joy_params_file, {"dev": joy_dev}],
-            ),
-            Node(
-                package="teleop_twist_joy",
-                executable="teleop_node",
-                name="teleop_twist_joy_node",
-                output="screen",
-                parameters=[joy_params_file],
-                remappings=[
-                    ("cmd_vel", "/cmd_vel_joy"),
-                ],
             ),
             Node(
                 package="vmx_highlevel",

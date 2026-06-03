@@ -31,11 +31,10 @@ def clamp(value: float, low: float, high: float) -> float:
 
 
 class CmdVelMuxNode(Node):
-    """Small PC-side /cmd_vel arbiter for joystick and autonomy commands.
+    """Small PC-side /cmd_vel arbiter for gamepad keypad and autonomy commands.
 
-    Joystick commands have priority while keypad/gamepad buttons are active. If
-    the joy state topic is not present, the node falls back to non-zero Twist
-    priority.
+    D-pad and face button commands read directly from /joy have priority while
+    active. Autonomous commands can still feed /cmd_vel_nav when the keypad is idle.
     """
 
     def __init__(self) -> None:
@@ -44,20 +43,15 @@ class CmdVelMuxNode(Node):
         self._load_parameters()
         self._validate_parameters()
 
-        self._last_joy_msg: Optional[Twist] = None
         self._last_nav_msg: Optional[Twist] = None
-        self._last_joy_time = -1.0
         self._last_nav_time = -1.0
-        self._last_joy_active_time = -1.0
         self._last_joy_state_time = -1.0
         self._joy_state_seen = False
-        self._joy_enabled = False
         self._last_dpad_msg: Optional[Twist] = None
         self._last_dpad_active_time = -1.0
         self._last_source = "idle"
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-        self.create_subscription(Twist, self._joy_topic, self._joy_callback, qos)
         self.create_subscription(Twist, self._nav_topic, self._nav_callback, qos)
         self.create_subscription(
             Joy, self._joy_state_topic, self._joy_state_callback, qos
@@ -70,19 +64,17 @@ class CmdVelMuxNode(Node):
 
         self.get_logger().info(
             "VMX cmd_vel mux ready: "
-            f"joy={self._joy_topic}, joy_state={self._joy_state_topic}, "
+            f"joy_state={self._joy_state_topic}, "
             f"nav={self._nav_topic}, output={self._output_topic}, "
             f"joy_timeout={self._joy_timeout:.2f}s nav_timeout={self._nav_timeout:.2f}s"
         )
 
     def _declare_parameters(self) -> None:
         defaults = {
-            "joy_topic": "/cmd_vel_joy",
             "joy_state_topic": "/joy",
             "nav_topic": "/cmd_vel_nav",
             "output_topic": "/cmd_vel",
             "status_topic": "/cmd_vel_mux_status",
-            "joy_enable_button": 4,
             "publish_rate_hz": 30.0,
             "status_rate_hz": 2.0,
             "joy_timeout": 0.35,
@@ -107,12 +99,10 @@ class CmdVelMuxNode(Node):
             self.declare_parameter(name, value)
 
     def _load_parameters(self) -> None:
-        self._joy_topic = str(self.get_parameter("joy_topic").value)
         self._joy_state_topic = str(self.get_parameter("joy_state_topic").value)
         self._nav_topic = str(self.get_parameter("nav_topic").value)
         self._output_topic = str(self.get_parameter("output_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
-        self._joy_enable_button = int(self.get_parameter("joy_enable_button").value)
         self._publish_rate_hz = float(self.get_parameter("publish_rate_hz").value)
         self._status_rate_hz = float(self.get_parameter("status_rate_hz").value)
         self._joy_timeout = float(self.get_parameter("joy_timeout").value)
@@ -159,10 +149,8 @@ class CmdVelMuxNode(Node):
                 raise ValueError(f"{name} must be > 0")
         if self._active_threshold < 0.0:
             raise ValueError("active_threshold must be >= 0")
-        if self._output_topic in (self._joy_topic, self._nav_topic):
-            raise ValueError("output_topic must differ from joy_topic and nav_topic")
-        if self._joy_enable_button < 0:
-            raise ValueError("joy_enable_button must be >= 0")
+        if self._output_topic == self._nav_topic:
+            raise ValueError("output_topic must differ from nav_topic")
         if self._dpad_axis_linear_x < 0 or self._dpad_axis_angular_z < 0:
             raise ValueError("dpad axis indexes must be >= 0")
         if self._dpad_turbo_button < 0:
@@ -179,19 +167,9 @@ class CmdVelMuxNode(Node):
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
 
-    def _joy_callback(self, msg: Twist) -> None:
-        self._last_joy_msg = msg
-        self._last_joy_time = self._now()
-        if twist_is_active(msg, self._active_threshold):
-            self._last_joy_active_time = self._last_joy_time
-
     def _joy_state_callback(self, msg: Joy) -> None:
         self._joy_state_seen = True
         self._last_joy_state_time = self._now()
-        self._joy_enabled = (
-            self._joy_enable_button < len(msg.buttons) and
-            msg.buttons[self._joy_enable_button] == 1
-        )
         self._last_dpad_msg = self._dpad_command_from_joy(msg)
         if twist_is_active(self._last_dpad_msg, self._active_threshold):
             self._last_dpad_active_time = self._last_joy_state_time
@@ -223,15 +201,8 @@ class CmdVelMuxNode(Node):
             command.angular.z -= angular_scale
         return command
 
-    def _combined_joy_command(self, joy_fresh: bool) -> Twist:
+    def _combined_joy_command(self) -> Twist:
         command = Twist()
-        if joy_fresh and self._last_joy_msg is not None:
-            command.linear.x = self._last_joy_msg.linear.x
-            command.linear.y = self._last_joy_msg.linear.y
-            command.linear.z = self._last_joy_msg.linear.z
-            command.angular.x = self._last_joy_msg.angular.x
-            command.angular.y = self._last_joy_msg.angular.y
-            command.angular.z = self._last_joy_msg.angular.z
         if self._last_dpad_msg is not None:
             command.linear.x += self._last_dpad_msg.linear.x
             command.angular.z += self._last_dpad_msg.angular.z
@@ -255,10 +226,6 @@ class CmdVelMuxNode(Node):
 
     def _select_command(self) -> Tuple[str, Twist]:
         now = self._now()
-        joy_fresh = (
-            self._last_joy_msg is not None and
-            now - self._last_joy_time <= self._joy_timeout
-        )
         nav_fresh = (
             self._last_nav_msg is not None and
             now - self._last_nav_time <= self._nav_timeout
@@ -266,10 +233,6 @@ class CmdVelMuxNode(Node):
         joy_state_fresh = (
             self._joy_state_seen and
             now - self._last_joy_state_time <= self._joy_timeout
-        )
-        joy_recently_active = (
-            self._last_joy_active_time >= 0.0 and
-            now - self._last_joy_active_time <= self._joy_lockout_after_active
         )
         dpad_recently_active = (
             self._last_dpad_active_time >= 0.0 and
@@ -281,16 +244,9 @@ class CmdVelMuxNode(Node):
                 self._last_dpad_msg,
                 self._active_threshold,
             ):
-                return "joy_keypad", self._combined_joy_command(False)
-            if self._joy_enabled:
-                return "joy", self._combined_joy_command(joy_fresh)
-            if joy_recently_active or dpad_recently_active:
+                return "joy_keypad", self._combined_joy_command()
+            if dpad_recently_active:
                 return "joy_stop", zero_twist()
-        elif joy_fresh and joy_recently_active:
-            return (
-                "joy_fallback",
-                self._last_joy_msg if self._last_joy_msg is not None else zero_twist(),
-            )
         if nav_fresh:
             return "nav", self._last_nav_msg if self._last_nav_msg is not None else zero_twist()
         return "idle", zero_twist()
@@ -303,7 +259,6 @@ class CmdVelMuxNode(Node):
 
     def _status_timer(self) -> None:
         now = self._now()
-        joy_age = now - self._last_joy_time if self._last_joy_time >= 0.0 else -1.0
         joy_state_age = (
             now - self._last_joy_state_time if self._last_joy_state_time >= 0.0 else -1.0
         )
@@ -312,8 +267,6 @@ class CmdVelMuxNode(Node):
         msg.data = (
             "mode=cmd_vel_mux "
             f"source={self._last_source} "
-            f"joy_enabled={str(self._joy_enabled).lower()} "
-            f"joy_age={joy_age:.3f} "
             f"joy_state_age={joy_state_age:.3f} "
             f"nav_age={nav_age:.3f} "
             f"joy_timeout={self._joy_timeout:.3f} "

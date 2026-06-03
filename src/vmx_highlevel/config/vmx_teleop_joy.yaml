@@ -1,30 +1,3 @@
-teleop_twist_joy_node:
-  ros__parameters:
-    require_enable_button: true
-
-    # Common Xbox / Logitech-style mapping:
-    #   left stick vertical -> linear x
-    #   right stick horizontal -> angular yaw
-    #   LB -> enable/deadman
-    #   RB -> turbo
-    enable_button: 4
-    enable_turbo_button: 5
-
-    axis_linear:
-      x: 1
-    scale_linear:
-      x: -0.70
-    scale_linear_turbo:
-      # Keep turbo equal to normal for linear drive; RB still increases turning.
-      x: -0.70
-
-    axis_angular:
-      yaw: 3
-    scale_angular:
-      yaw: -3.20
-    scale_angular_turbo:
-      yaw: -5.20
-
 joy_node:
   ros__parameters:
     dev: /dev/input/js0

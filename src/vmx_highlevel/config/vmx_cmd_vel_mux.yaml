@@ -1,8 +1,6 @@
 vmx_cmd_vel_mux_node:
   ros__parameters:
-    joy_topic: /cmd_vel_joy
     joy_state_topic: /joy
-    joy_enable_button: 4
     nav_topic: /cmd_vel_nav
     output_topic: /cmd_vel
     status_topic: /cmd_vel_mux_status

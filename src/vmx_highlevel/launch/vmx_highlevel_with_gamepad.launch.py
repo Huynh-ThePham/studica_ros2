@@ -40,7 +40,7 @@ def generate_launch_description():
                 default_value=PathJoinSubstitution(
                     [pkg_share, "config", "vmx_teleop_joy.yaml"]
                 ),
-                description="YAML parameters for joy_node and teleop_twist_joy.",
+                description="YAML parameters for joy_node.",
             ),
             DeclareLaunchArgument(
                 "mux_params_file",
