@@ -11,7 +11,7 @@ def motor_power(linear: float, angular: float):
     return compute_4wd_motor_power(
         linear_velocity=linear,
         angular_velocity=angular,
-        wheelbase=0.28,
+        wheelbase=0.38,
         max_wheel_linear_velocity=0.70,
         max_motor_power=0.70,
         wheel_ports=FIXED_4WD_WHEEL_PORTS,
@@ -30,8 +30,8 @@ def test_fixed_4wd_backward_mapping_is_stable():
 
 
 def test_fixed_4wd_positive_yaw_mapping_is_stable():
-    assert motor_power(0.0, 1.0) == pytest.approx([0.20, 0.20, 0.20, 0.20])
+    assert motor_power(0.0, 1.0) == pytest.approx([0.19 / 0.70] * 4)
 
 
 def test_fixed_4wd_negative_yaw_mapping_is_stable():
-    assert motor_power(0.0, -1.0) == pytest.approx([-0.20, -0.20, -0.20, -0.20])
+    assert motor_power(0.0, -1.0) == pytest.approx([-0.19 / 0.70] * 4)

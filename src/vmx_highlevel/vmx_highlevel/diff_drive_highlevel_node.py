@@ -27,6 +27,10 @@ def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+def slew_value(current: float, target: float, max_delta: float) -> float:
+    return current + clamp(target - current, -max_delta, max_delta)
+
+
 def normalize_angle(angle: float) -> float:
     while angle > math.pi:
         angle -= 2.0 * math.pi
@@ -147,6 +151,8 @@ class VmxHighlevelNode(Node):
         self._y = 0.0
         self._yaw = 0.0
         self._last_motor_power = [0.0, 0.0, 0.0, 0.0]
+        self._desired_motor_power = [0.0, 0.0, 0.0, 0.0]
+        self._last_control_time: Optional[float] = None
 
         motor_cmd_qos = QoSProfile(
             depth=10,
@@ -172,7 +178,8 @@ class VmxHighlevelNode(Node):
         cmd_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
         self.create_subscription(Twist, self._cmd_vel_topic, self._cmd_vel_callback, cmd_qos)
-        self.create_subscription(Imu, self._imu_topic, self._imu_callback, sub_qos)
+        if self._use_imu_yaw_for_odom and self._imu_topic:
+            self.create_subscription(Imu, self._imu_topic, self._imu_callback, sub_qos)
         for port in range(4):
             self.create_subscription(
                 Int32,
@@ -199,7 +206,7 @@ class VmxHighlevelNode(Node):
             f"VMX PC high-level: layout={self._drive_layout_name()} "
             f"ports={self._wheel_ports} best_effort_sub={self._subscribe_best_effort} "
             f"reset_srv={self._reset_odometry_service} "
-            "/cmd_vel -> motor_power; encoders+imu -> odom/tf."
+            "/cmd_vel -> motor_power; encoders -> odom/tf."
         )
 
     def _drive_layout_name(self) -> str:
@@ -211,7 +218,7 @@ class VmxHighlevelNode(Node):
         defaults = {
             "fixed_4wd_layout": True,
             "wheel_radius": 0.05,
-            "wheelbase": 0.28,
+            "wheelbase": 0.38,
             "ticks_per_rotation": 1464,
             "front_left_port": FIXED_4WD_WHEEL_PORTS["front_left"],
             "front_right_port": FIXED_4WD_WHEEL_PORTS["front_right"],
@@ -233,10 +240,12 @@ class VmxHighlevelNode(Node):
             "encoder_sign_m1": FIXED_4WD_ENCODER_SIGN[1],
             "encoder_sign_m2": FIXED_4WD_ENCODER_SIGN[2],
             "encoder_sign_m3": FIXED_4WD_ENCODER_SIGN[3],
-            "max_linear_velocity": 0.70,
-            "max_angular_velocity": 1.80,
-            "max_wheel_linear_velocity": 0.70,
-            "max_motor_power": 0.70,
+            "max_linear_velocity": 1.00,
+            "max_angular_velocity": 5.30,
+            "max_wheel_linear_velocity": 1.00,
+            "max_motor_power": 1.00,
+            "motor_power_slew_rate": 1.40,
+            "motor_power_stop_slew_rate": 2.80,
             "cmd_vel_timeout": 0.25,
             "control_rate_hz": 20.0,
             "odom_rate_hz": 30.0,
@@ -300,6 +309,12 @@ class VmxHighlevelNode(Node):
             self.get_parameter("max_wheel_linear_velocity").value
         )
         self._max_motor_power = float(self.get_parameter("max_motor_power").value)
+        self._motor_power_slew_rate = float(
+            self.get_parameter("motor_power_slew_rate").value
+        )
+        self._motor_power_stop_slew_rate = float(
+            self.get_parameter("motor_power_stop_slew_rate").value
+        )
         self._cmd_vel_timeout = float(self.get_parameter("cmd_vel_timeout").value)
         self._control_rate_hz = float(self.get_parameter("control_rate_hz").value)
         self._odom_rate_hz = float(self.get_parameter("odom_rate_hz").value)
@@ -334,6 +349,12 @@ class VmxHighlevelNode(Node):
             raise ValueError("ticks_per_rotation must be > 0")
         if self._max_wheel_linear_velocity <= 0.0:
             raise ValueError("max_wheel_linear_velocity must be > 0")
+        if self._max_motor_power <= 0.0:
+            raise ValueError("max_motor_power must be > 0")
+        if self._motor_power_slew_rate <= 0.0:
+            raise ValueError("motor_power_slew_rate must be > 0")
+        if self._motor_power_stop_slew_rate <= 0.0:
+            raise ValueError("motor_power_stop_slew_rate must be > 0")
         if self._cmd_vel_timeout <= 0.0:
             raise ValueError("cmd_vel_timeout must be > 0")
         for rate_name, rate in (
@@ -424,12 +445,21 @@ class VmxHighlevelNode(Node):
         return response
 
     def _control_timer_callback(self) -> None:
-        if not self._have_cmd or self._now_sec() - self._last_cmd_time > self._cmd_vel_timeout:
-            self._publish_motor_power([0.0, 0.0, 0.0, 0.0])
+        now = self._now_sec()
+        if self._last_control_time is None:
+            dt = 1.0 / self._control_rate_hz
+        else:
+            dt = max(0.0, min(now - self._last_control_time, 0.25))
+        self._last_control_time = now
+
+        command_fresh = self._have_cmd and now - self._last_cmd_time <= self._cmd_vel_timeout
+        if not command_fresh:
+            self._desired_motor_power = [0.0, 0.0, 0.0, 0.0]
             self._have_cmd = False
+            self._publish_slewed_motor_power(dt, stopping=True)
             return
 
-        motor_power = compute_4wd_motor_power(
+        self._desired_motor_power = compute_4wd_motor_power(
             self._target_linear,
             self._target_angular,
             self._wheelbase,
@@ -440,7 +470,7 @@ class VmxHighlevelNode(Node):
             self._motor_command_gain,
             self._motor_min_power,
         )
-        self._publish_motor_power(motor_power)
+        self._publish_slewed_motor_power(dt, stopping=False)
 
     def _apply_motor_trim(self, port: int, wheel_power: float) -> float:
         return apply_motor_trim(
@@ -457,6 +487,15 @@ class VmxHighlevelNode(Node):
         msg.data = [float(value) for value in motor_power]
         self._last_motor_power = list(msg.data)
         self._motor_power_pub.publish(msg)
+
+    def _publish_slewed_motor_power(self, dt: float, *, stopping: bool) -> None:
+        rate = self._motor_power_stop_slew_rate if stopping else self._motor_power_slew_rate
+        max_delta = rate * dt
+        motor_power = [
+            slew_value(current, target, max_delta)
+            for current, target in zip(self._last_motor_power, self._desired_motor_power)
+        ]
+        self._publish_motor_power(motor_power)
 
     def _odom_timer_callback(self) -> None:
         if not self._publish_odom and not self._publish_tf:
@@ -566,7 +605,11 @@ class VmxHighlevelNode(Node):
             f"imu_ready={str(self._have_imu).lower()} "
             f"have_cmd={str(self._have_cmd).lower()} "
             f"cmd_age={age:.3f} "
+            f"cmd_linear={self._target_linear:.3f} "
+            f"cmd_angular={self._target_angular:.3f} "
+            f"desired_motor_power=[{','.join(f'{value:.3f}' for value in self._desired_motor_power)}] "
             f"last_motor_power=[{','.join(f'{value:.3f}' for value in self._last_motor_power)}] "
+            f"rpm=[{','.join(f'{self._speed_rpm[port]:.1f}' for port in range(4))}] "
             f"odom_x={self._x:.4f} odom_y={self._y:.4f} odom_yaw={self._yaw:.4f}"
         )
         self._status_pub.publish(msg)

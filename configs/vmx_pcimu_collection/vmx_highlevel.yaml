@@ -1,0 +1,13 @@
+vmx_highlevel_node:
+  ros__parameters:
+    # Disable VMX IMU in high-level odometry. The only VIO IMU is the
+    # PC-connected navX published on /imu by sensors/start_pc_navx_imu.sh.
+    imu_topic: ""
+    imu_frame_id: vmx_imu_link
+    use_imu_yaw_for_odom: false
+    max_linear_velocity: 1.00
+    max_angular_velocity: 5.30
+    max_wheel_linear_velocity: 1.00
+    max_motor_power: 1.00
+    motor_power_slew_rate: 1.40
+    motor_power_stop_slew_rate: 2.80

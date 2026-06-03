@@ -26,11 +26,16 @@ def zero_twist() -> Twist:
     return Twist()
 
 
+def clamp(value: float, low: float, high: float) -> float:
+    return min(max(value, low), high)
+
+
 class CmdVelMuxNode(Node):
     """Small PC-side /cmd_vel arbiter for joystick and autonomy commands.
 
-    Joystick commands have priority while the deadman is held. If the joy state
-    topic is not present, the node falls back to non-zero Twist priority.
+    Joystick commands have priority while keypad/gamepad buttons are active. If
+    the joy state topic is not present, the node falls back to non-zero Twist
+    priority.
     """
 
     def __init__(self) -> None:
@@ -47,6 +52,8 @@ class CmdVelMuxNode(Node):
         self._last_joy_state_time = -1.0
         self._joy_state_seen = False
         self._joy_enabled = False
+        self._last_dpad_msg: Optional[Twist] = None
+        self._last_dpad_active_time = -1.0
         self._last_source = "idle"
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -83,6 +90,18 @@ class CmdVelMuxNode(Node):
             "joy_lockout_after_active": 0.50,
             "active_threshold": 1e-4,
             "stop_on_idle": True,
+            "dpad_enable": True,
+            "dpad_axis_linear_x": 7,
+            "dpad_axis_angular_z": 6,
+            "dpad_scale_linear_x": -0.70,
+            "dpad_scale_angular_z": 3.20,
+            "dpad_turbo_scale_linear_x": -1.00,
+            "dpad_turbo_scale_angular_z": 5.20,
+            "dpad_turbo_button": 5,
+            "dpad_linear_turbo_button": 4,
+            "dpad_angular_turbo_button": 5,
+            "dpad_turn_left_button": 1,
+            "dpad_turn_right_button": 2,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -103,6 +122,30 @@ class CmdVelMuxNode(Node):
         )
         self._active_threshold = float(self.get_parameter("active_threshold").value)
         self._stop_on_idle = bool(self.get_parameter("stop_on_idle").value)
+        self._dpad_enable = bool(self.get_parameter("dpad_enable").value)
+        self._dpad_axis_linear_x = int(self.get_parameter("dpad_axis_linear_x").value)
+        self._dpad_axis_angular_z = int(self.get_parameter("dpad_axis_angular_z").value)
+        self._dpad_scale_linear_x = float(self.get_parameter("dpad_scale_linear_x").value)
+        self._dpad_scale_angular_z = float(self.get_parameter("dpad_scale_angular_z").value)
+        self._dpad_turbo_scale_linear_x = float(
+            self.get_parameter("dpad_turbo_scale_linear_x").value
+        )
+        self._dpad_turbo_scale_angular_z = float(
+            self.get_parameter("dpad_turbo_scale_angular_z").value
+        )
+        self._dpad_turbo_button = int(self.get_parameter("dpad_turbo_button").value)
+        self._dpad_linear_turbo_button = int(
+            self.get_parameter("dpad_linear_turbo_button").value
+        )
+        self._dpad_angular_turbo_button = int(
+            self.get_parameter("dpad_angular_turbo_button").value
+        )
+        self._dpad_turn_left_button = int(
+            self.get_parameter("dpad_turn_left_button").value
+        )
+        self._dpad_turn_right_button = int(
+            self.get_parameter("dpad_turn_right_button").value
+        )
 
     def _validate_parameters(self) -> None:
         for name, value in (
@@ -120,6 +163,18 @@ class CmdVelMuxNode(Node):
             raise ValueError("output_topic must differ from joy_topic and nav_topic")
         if self._joy_enable_button < 0:
             raise ValueError("joy_enable_button must be >= 0")
+        if self._dpad_axis_linear_x < 0 or self._dpad_axis_angular_z < 0:
+            raise ValueError("dpad axis indexes must be >= 0")
+        if self._dpad_turbo_button < 0:
+            raise ValueError("dpad_turbo_button must be >= 0")
+        for name, value in (
+            ("dpad_linear_turbo_button", self._dpad_linear_turbo_button),
+            ("dpad_angular_turbo_button", self._dpad_angular_turbo_button),
+            ("dpad_turn_left_button", self._dpad_turn_left_button),
+            ("dpad_turn_right_button", self._dpad_turn_right_button),
+        ):
+            if value < 0:
+                raise ValueError(f"{name} must be >= 0")
 
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
@@ -137,6 +192,62 @@ class CmdVelMuxNode(Node):
             self._joy_enable_button < len(msg.buttons) and
             msg.buttons[self._joy_enable_button] == 1
         )
+        self._last_dpad_msg = self._dpad_command_from_joy(msg)
+        if twist_is_active(self._last_dpad_msg, self._active_threshold):
+            self._last_dpad_active_time = self._last_joy_state_time
+
+    def _axis(self, msg: Joy, index: int) -> float:
+        if 0 <= index < len(msg.axes) and math.isfinite(msg.axes[index]):
+            return float(msg.axes[index])
+        return 0.0
+
+    def _button_pressed(self, msg: Joy, index: int) -> bool:
+        return 0 <= index < len(msg.buttons) and msg.buttons[index] == 1
+
+    def _dpad_command_from_joy(self, msg: Joy) -> Twist:
+        command = Twist()
+        if not self._dpad_enable:
+            return command
+        linear_turbo = self._button_pressed(msg, self._dpad_linear_turbo_button)
+        angular_turbo = self._button_pressed(msg, self._dpad_angular_turbo_button)
+        linear_scale = (
+            self._dpad_turbo_scale_linear_x if linear_turbo else self._dpad_scale_linear_x
+        )
+        angular_scale = (
+            self._dpad_turbo_scale_angular_z if angular_turbo else self._dpad_scale_angular_z
+        )
+        command.linear.x = self._axis(msg, self._dpad_axis_linear_x) * linear_scale
+        if self._button_pressed(msg, self._dpad_turn_left_button):
+            command.angular.z += angular_scale
+        if self._button_pressed(msg, self._dpad_turn_right_button):
+            command.angular.z -= angular_scale
+        return command
+
+    def _combined_joy_command(self, joy_fresh: bool) -> Twist:
+        command = Twist()
+        if joy_fresh and self._last_joy_msg is not None:
+            command.linear.x = self._last_joy_msg.linear.x
+            command.linear.y = self._last_joy_msg.linear.y
+            command.linear.z = self._last_joy_msg.linear.z
+            command.angular.x = self._last_joy_msg.angular.x
+            command.angular.y = self._last_joy_msg.angular.y
+            command.angular.z = self._last_joy_msg.angular.z
+        if self._last_dpad_msg is not None:
+            command.linear.x += self._last_dpad_msg.linear.x
+            command.angular.z += self._last_dpad_msg.angular.z
+        max_linear = max(
+            abs(self._dpad_scale_linear_x),
+            abs(self._dpad_turbo_scale_linear_x),
+            abs(command.linear.x),
+        )
+        max_angular = max(
+            abs(self._dpad_scale_angular_z),
+            abs(self._dpad_turbo_scale_angular_z),
+            abs(command.angular.z),
+        )
+        command.linear.x = clamp(command.linear.x, -max_linear, max_linear)
+        command.angular.z = clamp(command.angular.z, -max_angular, max_angular)
+        return command
 
     def _nav_callback(self, msg: Twist) -> None:
         self._last_nav_msg = msg
@@ -160,11 +271,20 @@ class CmdVelMuxNode(Node):
             self._last_joy_active_time >= 0.0 and
             now - self._last_joy_active_time <= self._joy_lockout_after_active
         )
+        dpad_recently_active = (
+            self._last_dpad_active_time >= 0.0 and
+            now - self._last_dpad_active_time <= self._joy_lockout_after_active
+        )
 
         if joy_state_fresh:
+            if self._last_dpad_msg is not None and twist_is_active(
+                self._last_dpad_msg,
+                self._active_threshold,
+            ):
+                return "joy_keypad", self._combined_joy_command(False)
             if self._joy_enabled:
-                return "joy", self._last_joy_msg if joy_fresh else zero_twist()
-            if joy_recently_active:
+                return "joy", self._combined_joy_command(joy_fresh)
+            if joy_recently_active or dpad_recently_active:
                 return "joy_stop", zero_twist()
         elif joy_fresh and joy_recently_active:
             return (

@@ -10,10 +10,9 @@ vmx_cmd_vel_mux_node:
     publish_rate_hz: 30.0
     status_rate_hz: 2.0
 
-    # teleop_twist_joy publishes while the deadman button is held. The mux also
-    # reads /joy directly, so holding LB with centered sticks publishes zero and
-    # overrides autonomy. After active joystick motion, it keeps priority briefly
-    # so released joystick states reliably send a stop before autonomy resumes.
+    # The mux reads keypad/gamepad buttons directly from /joy. D-pad up/down
+    # drives forward/backward without a deadman, X/B turn left/right, LB boosts
+    # forward/backward speed, and RB boosts turn speed.
     joy_timeout: 0.35
     joy_lockout_after_active: 0.50
 
@@ -23,3 +22,19 @@ vmx_cmd_vel_mux_node:
 
     active_threshold: 0.0001
     stop_on_idle: true
+
+    # Common Linux joy mapping: D-pad left/right = axis 6, up/down = axis 7,
+    # B = button 1, X = button 2, LB = button 4, RB = button 5.
+    # If your controller reports opposite signs, flip the corresponding scale.
+    dpad_enable: true
+    dpad_axis_linear_x: 7
+    dpad_axis_angular_z: 6
+    dpad_scale_linear_x: -0.70
+    dpad_scale_angular_z: 3.20
+    dpad_turbo_scale_linear_x: -1.00
+    dpad_turbo_scale_angular_z: 5.20
+    dpad_turbo_button: 5
+    dpad_linear_turbo_button: 4
+    dpad_angular_turbo_button: 5
+    dpad_turn_left_button: 1
+    dpad_turn_right_button: 2
